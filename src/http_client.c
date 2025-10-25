@@ -77,7 +77,6 @@ int http_post(const char *url, const char **headers, const char *body,
   if (headers != NULL) {
     int i = 0;
     while (headers[i] != NULL) {
-      printf("  %s\n", headers[i]);
       header_list = curl_slist_append(header_list, headers[i]);
       i++;
     }
