@@ -61,7 +61,7 @@ int main(void) {
 
   printf("usage statistics:\n");
   printf("-----------------\n");
-  printf("prompt tokens:     %d\n", response.promt_tokens);
+  printf("prompt tokens:     %d\n", response.prompt_tokens);
   printf("completion tokens: %d\n", response.completion_tokens);
   printf("total tokens:      %d\n", response.total_tokens);
   printf("\nresponse ID: %s\n", response.id ? response.id : "N/A");

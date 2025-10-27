@@ -26,7 +26,15 @@ typedef struct {
 } mistral_message_t;
 
 /*
-* Request from chat/completions
+* FIM struct
+*/
+typedef struct {
+  char *prompt;
+  char *suffix;
+} mistral_fim_t;
+
+/*
+* Response from chat/completions
 */
 typedef struct {
   char *id;
@@ -70,6 +78,18 @@ int mistral_chat_completions(
   const mistral_config_t *config,
   const mistral_message_t *messages,
   size_t message_count,
+  mistral_response_t *response
+);
+
+/*
+* Send request to fim /fim/completions
+* config: client config
+* fim: object with suffix and prompt
+* response ptr to struct for write response
+*/
+int mistral_fim_completions(
+  const mistral_config_t *config,
+  const mistral_fim_t *fim,
   mistral_response_t *response
 );
 

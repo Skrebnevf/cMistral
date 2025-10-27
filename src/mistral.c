@@ -8,6 +8,7 @@
 #include <string.h>
 
 #define DEFAULT_MODEL "mistral-tiny"
+#define DEFAULT_FIM_MODEL = "codestral-2404"
 #define DEFAULT_TEMPERATURE 0.7
 #define DEFAULT_MAX_TOKENS 1024
 
@@ -25,7 +26,7 @@ mistral_config_t *mistral_config_create(const char *api_key) {
 
   config = (mistral_config_t *)malloc(sizeof(mistral_config_t));
   if (config == NULL) {
-    fprintf(stderr, "Failed to allocate memory for config\n");
+    fprintf(stderr, "failed to allocate memory for config\n");
     return NULL;
   }
 
@@ -33,14 +34,14 @@ mistral_config_t *mistral_config_create(const char *api_key) {
 
   config->api_key = strdup(api_key);
   if (config->api_key == NULL) {
-    fprintf(stderr, "Failed to duplicate API key\n");
+    fprintf(stderr, "failed to duplicate API key\n");
     free(config);
     return NULL;
   }
 
   config->model = strdup(DEFAULT_MODEL);
   if (config->model == NULL) {
-    fprintf(stderr, "Failed to duplicate model name\n");
+    fprintf(stderr, "failed to duplicate model name\n");
     free(config->api_key);
     free(config);
     return NULL;
@@ -64,6 +65,20 @@ void mistral_config_free(mistral_config_t *config) {
   }
 }
 
+static char *create_fim_request_json(const mistral_config_t *config,
+                                     const mistral_fim_t *fim) {
+  cJSON *root = NULL;
+  char *json_string = NULL;
+
+  root = cJSON_CreateObject();
+  if (root == NULL) {
+    fprintf(stderr, "failed to create JSON object\n");
+    return NULL;
+  }
+
+  return json_string;
+}
+
 static char *create_chat_request_json(const mistral_config_t *config,
                                       const mistral_message_t *messages,
                                       size_t message_count) {
@@ -75,39 +90,39 @@ static char *create_chat_request_json(const mistral_config_t *config,
 
   root = cJSON_CreateObject();
   if (root == NULL) {
-    fprintf(stderr, "Failed to create JSON object\n");
+    fprintf(stderr, "failed to create JSON object\n");
     return NULL;
   }
 
   if (cJSON_AddStringToObject(root, "model", config->model) == NULL) {
-    fprintf(stderr, "Failed to add model to JSON\n");
+    fprintf(stderr, "failed to add model to JSON\n");
     goto error;
   }
 
   messages_array = cJSON_CreateArray();
   if (messages_array == NULL) {
-    fprintf(stderr, "Failed to create messages array\n");
+    fprintf(stderr, "failed to create messages array\n");
     goto error;
   }
 
   for (i = 0; i < message_count; i++) {
     message_obj = cJSON_CreateObject();
     if (message_obj == NULL) {
-      fprintf(stderr, "Failed to create message object\n");
+      fprintf(stderr, "failed to create message object\n");
       goto error;
     }
 
     if (cJSON_AddStringToObject(message_obj, "role", messages[i].role) ==
         NULL) {
       cJSON_Delete(message_obj);
-      fprintf(stderr, "Failed to add role to message\n");
+      fprintf(stderr, "failed to add role to message\n");
       goto error;
     }
 
     if (cJSON_AddStringToObject(message_obj, "content", messages[i].content) ==
         NULL) {
       cJSON_Delete(message_obj);
-      fprintf(stderr, "Failed to add content to message\n");
+      fprintf(stderr, "failed to add content to message\n");
       goto error;
     }
 
@@ -118,18 +133,18 @@ static char *create_chat_request_json(const mistral_config_t *config,
 
   if (cJSON_AddNumberToObject(root, "temperature", config->temperature) ==
       NULL) {
-    fprintf(stderr, "Failed to add temperature to JSON\n");
+    fprintf(stderr, "failed to add temperature to JSON\n");
     goto error;
   }
 
   if (cJSON_AddNumberToObject(root, "max_tokens", config->max_tokens) == NULL) {
-    fprintf(stderr, "Failed to add max_tokens to JSON\n");
+    fprintf(stderr, "failed to add max_tokens to JSON\n");
     goto error;
   }
 
   json_string = cJSON_PrintUnformatted(root);
   if (json_string == NULL) {
-    fprintf(stderr, "Failed to print JSON\n");
+    fprintf(stderr, "failed to print JSON\n");
     goto error;
   }
 
