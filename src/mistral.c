@@ -202,7 +202,7 @@ static int parse_chat_response(const char *json_data,
   if (usage != NULL) {
     item = cJSON_GetObjectItemCaseSensitive(usage, "prompt_tokens");
     if (item != NULL && cJSON_IsNumber(item)) {
-      response->promt_tokens = item->valueint;
+      response->prompt_tokens = item->valueint;
     }
 
     item = cJSON_GetObjectItemCaseSensitive(usage, "completion_tokens");
@@ -304,7 +304,7 @@ void mistral_response_free(mistral_response_t *response) {
       response->error_message = NULL;
     }
 
-    response->promt_tokens = 0;
+    response->prompt_tokens = 0;
     response->completion_tokens = 0;
     response->total_tokens = 0;
   }

@@ -32,7 +32,7 @@ typedef struct {
   char *id;
   char *model;
   char *content;
-  int promt_tokens;
+  int prompt_tokens;
   int completion_tokens;
   int total_tokens;
   char *error_message;

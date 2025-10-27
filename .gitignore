@@ -25,6 +25,7 @@ chat_example
 .Trashes
 ehthumbs.db
 Thumbs.db
+AGENTS.md
 
 build/
 bin/

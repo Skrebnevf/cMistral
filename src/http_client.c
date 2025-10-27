@@ -5,6 +5,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+static int is_valid_url(const char *url) {
+  if (url == NULL || strlen(url) == 0)
+    return 0;
+  return strncmp(url, "http://", 7) == 0 || strncmp(url, "https://", 8) == 0;
+}
+
 static size_t write_callback(void *ptr, size_t size, size_t nmemb,
                              void *userdata) {
   size_t total_size = size * nmemb;
@@ -38,6 +44,10 @@ void http_client_cleanup(void) { curl_global_cleanup(); }
 
 int http_post(const char *url, const char **headers, const char *body,
               http_response_t *response) {
+  if (!is_valid_url(url)) {
+    fprintf(stderr, "incorrect URL\n");
+  }
+
   CURL *curl = NULL;
   CURLcode res;
   struct curl_slist *header_list = NULL;
