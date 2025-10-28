@@ -8,7 +8,6 @@
 #include <string.h>
 
 #define DEFAULT_MODEL "mistral-tiny"
-#define DEFAULT_FIM_MODEL = "codestral-2404"
 #define DEFAULT_TEMPERATURE 0.7
 #define DEFAULT_MAX_TOKENS 1024
 
@@ -76,7 +75,46 @@ static char *create_fim_request_json(const mistral_config_t *config,
     return NULL;
   }
 
+  if (cJSON_AddStringToObject(root, "model", config->model) == NULL) {
+    fprintf(stderr, "failed to add model to JSON\n");
+    goto error;
+  }
+
+  if (cJSON_AddStringToObject(root, "prompt", fim->prompt) == NULL) {
+    fprintf(stderr, "failed to add prompt to JSON");
+    goto error;
+  }
+
+  if (cJSON_AddStringToObject(root, "suffix", fim->suffix) == NULL) {
+    fprintf(stderr, "failed to add suffix to JSON");
+    goto error;
+  }
+
+  if (cJSON_AddNumberToObject(root, "temperature", config->temperature) ==
+      NULL) {
+    fprintf(stderr, "failed to add temperature to JSON\n");
+    goto error;
+  }
+
+  if (cJSON_AddNumberToObject(root, "max_tokens", config->max_tokens) == NULL) {
+    fprintf(stderr, "filed to add max_tokens to JSON\n");
+    goto error;
+  }
+
+  json_string = cJSON_PrintUnformatted(root);
+  if (json_string == NULL) {
+    fprintf(stderr, "failed to printed JSON\n");
+    goto error;
+  }
+
+  cJSON_Delete(root);
   return json_string;
+
+error:
+  if (root != NULL) {
+    cJSON_Delete(root);
+  }
+  return NULL;
 }
 
 static char *create_chat_request_json(const mistral_config_t *config,
@@ -158,8 +196,7 @@ error:
   return NULL;
 }
 
-static int parse_chat_response(const char *json_data,
-                               mistral_response_t *response) {
+static int parse_response(const char *json_data, mistral_response_t *response) {
   cJSON *root = NULL;
   cJSON *choices = NULL;
   cJSON *first_choice = NULL;
@@ -241,6 +278,67 @@ static int parse_chat_response(const char *json_data,
   return 0;
 }
 
+int mistral_fim_completions(const mistral_config_t *config,
+                            const mistral_fim_t *fim,
+                            mistral_response_t *response) {
+  char *request_json = NULL;
+  http_response_t http_resp = {0};
+  char auth_headers[512];
+  const char *headers[3];
+  int ret = -1;
+
+  if (config == NULL || config->api_key == NULL || fim == NULL ||
+      fim->prompt == NULL || fim->suffix == NULL) {
+    fprintf(stderr, "invalid arguments to mistral_fim_completions\n");
+    return -1;
+  }
+
+  memset(response, 0, sizeof(mistral_response_t));
+
+  request_json = create_fim_request_json(config, fim);
+  if (request_json == NULL) {
+    response->error_message = strdup("failed to create request JSON");
+    return -1;
+  }
+
+  snprintf(auth_headers, sizeof(auth_headers), "authorization: Bearer %s",
+           config->api_key);
+
+  headers[0] = "Content-Type: application/json";
+  headers[1] = auth_headers;
+  headers[2] = NULL;
+
+  if (http_post(MISTRAL_BASE_API "/fim/completions", headers, request_json,
+                &http_resp) != 0) {
+    response->error_message = strdup("HTTP request failed");
+    goto cleanup;
+  }
+
+  if (http_resp.http_code != 200) {
+    char error_msg[256];
+    snprintf(error_msg, sizeof(error_msg), "HTTP error: %ld %s",
+             http_resp.http_code, http_resp.data);
+    response->error_message = strdup(error_msg);
+    goto cleanup;
+  }
+
+  if (parse_response(http_resp.data, response) != 0) {
+    goto cleanup;
+  }
+
+  ret = 0;
+
+  return ret;
+
+cleanup:
+  if (request_json != NULL) {
+    free(request_json);
+  }
+  http_response_free(&http_resp);
+
+  return ret;
+}
+
 int mistral_chat_completions(const mistral_config_t *config,
                              const mistral_message_t *messages,
                              size_t message_count,
@@ -279,17 +377,19 @@ int mistral_chat_completions(const mistral_config_t *config,
 
   if (http_resp.http_code != 200) {
     char error_msg[256];
-    snprintf(error_msg, sizeof(error_msg), "HTTP error: %ld",
-             http_resp.http_code);
+    snprintf(error_msg, sizeof(error_msg), "HTTP error: %ld %s",
+             http_resp.http_code, http_resp.data);
     response->error_message = strdup(error_msg);
     goto cleanup;
   }
 
-  if (parse_chat_response(http_resp.data, response) != 0) {
+  if (parse_response(http_resp.data, response) != 0) {
     goto cleanup;
   }
 
   ret = 0;
+
+  return ret;
 
 cleanup:
   if (request_json != NULL) {

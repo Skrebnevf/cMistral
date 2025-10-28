@@ -26,6 +26,8 @@ $(LIB_NAME): $(LIB_OBJECTS)
 
 example: $(LIB_NAME)
 	$(CC) $(CFLAGS) $(EXAMPLE_DIR)/chat_example.c -L. -lmistral $(LDFLAGS) -o chat_example
+	$(CC) $(CFLAGS) $(EXAMPLE_DIR)/fim_example.c -L. -lmistral $(LDFLAGS) -o fim_example
+
 
 tests: $(LIB_NAME)
 	@for test in $(TEST_SOURCES); do \
