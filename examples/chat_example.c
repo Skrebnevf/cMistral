@@ -35,39 +35,89 @@ int main(void) {
   config->temperature = 0.7;
   config->max_tokens = 200;
 
+  config->max_retries = 3;
+  config->retry_delay_ms = 1000;
+  config->timeout_sec = 60;
+  config->debug_mode = 1;
+
   free(config->model);
   config->model = strdup("mistral-small-latest");
 
-  printf("using model: %s\n", config->model);
-  printf("temperature: %.2f\n", config->temperature);
-  printf("max tokens: %d\n\n", config->max_tokens);
+  printf("Configuration:\n");
+  printf("  Model: %s\n", config->model);
+  printf("  Temperature: %.2f\n", config->temperature);
+  printf("  Max tokens: %d\n", config->max_tokens);
+  printf("  Max retries: %d\n", config->max_retries);
+  printf("  Retry delay: %d ms\n", config->retry_delay_ms);
+  printf("  Timeout: %d seconds\n", config->timeout_sec);
+  printf("  Debug mode: %s\n\n", config->debug_mode ? "enabled" : "disabled");
 
   mistral_message_t messages[] = {
       {.role = "system",
-       .content = "you are helpful assistant for C developer"},
-      {.role = "user", .content = "Tell me about malloc method"}};
+       .content = "You are a helpful assistant that provides concise answers."},
+      {.role = "user", .content = "Whai is C lang?"}};
 
   printf("sending request...\n\n");
 
   if (mistral_chat_completions(config, messages, 2, &response) != 0) {
-    fprintf(stderr, "error: %s",
-            response.error_message ? response.error_message : "unknown error");
+    printf("\n=== ERROR ===\n");
+    printf("error code: %d (%s)\n", response.error_code,
+           mistral_error_string(response.error_code));
+    printf("HTTP code: %ld\n", response.http_code);
+
+    if (response.error_message != NULL) {
+      printf("message: %s\n", response.error_message);
+    }
+
+    if (response.api_error != NULL) {
+      printf("\ndetailed API Error:\n");
+
+      if (response.api_error->type != NULL) {
+        printf("  type: %s\n", response.api_error->type);
+      }
+
+      if (response.api_error->message != NULL) {
+        printf("  message: %s\n", response.api_error->message);
+      }
+
+      if (response.api_error->code != NULL) {
+        printf("  code: %s\n", response.api_error->code);
+      }
+
+      if (response.api_error->param != NULL) {
+        printf("  parameter: %s\n", response.api_error->param);
+      }
+    }
+
+    printf("=============\n");
     goto cleanup;
   }
 
-  printf("response:\n");
-  printf("---------\n");
-  printf("%s\n\n", response.content);
+  printf("\n=== RESPONSE ===\n");
+  printf("%s\n", response.content);
+  printf("================\n\n");
 
-  printf("usage statistics:\n");
+  printf("Usage Statistics:\n");
   printf("-----------------\n");
-  printf("prompt tokens:     %d\n", response.prompt_tokens);
-  printf("completion tokens: %d\n", response.completion_tokens);
-  printf("total tokens:      %d\n", response.total_tokens);
-  printf("\nresponse ID: %s\n", response.id ? response.id : "N/A");
-  printf("model used:  %s\n", response.model ? response.model : "N/A");
+  printf("Prompt tokens:     %d\n", response.prompt_tokens);
+  printf("Completion tokens: %d\n", response.completion_tokens);
+  printf("Total tokens:      %d\n\n", response.total_tokens);
+
+  printf("Metadata:\n");
+  printf("---------\n");
+  if (response.id != NULL) {
+    printf("Response ID: %s\n", response.id);
+  }
+  if (response.model != NULL) {
+    printf("Model used:  %s\n", response.model);
+  }
+  printf("HTTP code:   %ld\n", response.http_code);
+  printf("Error code:  %d (%s)\n", response.error_code,
+         mistral_error_string(response.error_code));
 
   ret = 0;
+
+  return ret;
 
 cleanup:
   mistral_response_free(&response);

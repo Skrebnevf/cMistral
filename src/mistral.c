@@ -2,18 +2,46 @@
 
 #include "../include/mistral.h"
 #include "http_client.h"
+#include "mistral_helpers.h"
+#include "mistral_utils.h"
 #include <cjson/cJSON.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define DEFAULT_MODEL "mistral-tiny"
 #define DEFAULT_TEMPERATURE 0.7
 #define DEFAULT_MAX_TOKENS 1024
+#define DEFAULT_MAX_RETRIES 3
+#define DEFAULT_RETRY_DELAY_MS 1000
+#define DEFAULT_TIMEOUT_SEC 60
 
+static int g_debug_enabled = 0;
+
+#ifdef DEBUG
+#define DEBUG_LOG(...)                                                         \
+  do {                                                                         \
+    fprintf(stderr, "[---DEBUG---] ");                                         \
+    fprintf(stderr, __VA_ARGS__);                                              \
+    fprintf(stderr, "\n");                                                     \
+  } while (0)
+#else
+#define DEBUG_LOG(...) ((void)0)
+#endif
+
+/*Init the Mistral lib include HTTP client*/
 int mistral_init(void) { return http_client_init(); }
 
+/*Cleanup all Mistral resources*/
 void mistral_cleanup(void) { http_client_cleanup(); }
+
+void mistral_set_debug(int enabled) {
+  g_debug_enabled = enabled;
+#ifdef DEBUG
+  DEBUG_LOG("debug mode %s", enabled ? "enabled" : "disabled");
+#endif
+}
 
 mistral_config_t *mistral_config_create(const char *api_key) {
   mistral_config_t *config = NULL;
@@ -48,6 +76,10 @@ mistral_config_t *mistral_config_create(const char *api_key) {
 
   config->temperature = DEFAULT_TEMPERATURE;
   config->max_tokens = DEFAULT_MAX_TOKENS;
+  config->max_retries = DEFAULT_MAX_RETRIES;
+  config->retry_delay_ms = DEFAULT_RETRY_DELAY_MS;
+  config->timeout_sec = DEFAULT_TIMEOUT_SEC;
+  config->debug_mode = 0;
 
   return config;
 }
@@ -64,277 +96,103 @@ void mistral_config_free(mistral_config_t *config) {
   }
 }
 
-static char *create_fim_request_json(const mistral_config_t *config,
-                                     const mistral_fim_t *fim) {
-  cJSON *root = NULL;
-  char *json_string = NULL;
-
-  root = cJSON_CreateObject();
-  if (root == NULL) {
-    fprintf(stderr, "failed to create JSON object\n");
-    return NULL;
-  }
-
-  if (cJSON_AddStringToObject(root, "model", config->model) == NULL) {
-    fprintf(stderr, "failed to add model to JSON\n");
-    goto error;
-  }
-
-  if (cJSON_AddStringToObject(root, "prompt", fim->prompt) == NULL) {
-    fprintf(stderr, "failed to add prompt to JSON");
-    goto error;
-  }
-
-  if (cJSON_AddStringToObject(root, "suffix", fim->suffix) == NULL) {
-    fprintf(stderr, "failed to add suffix to JSON");
-    goto error;
-  }
-
-  if (cJSON_AddNumberToObject(root, "temperature", config->temperature) ==
-      NULL) {
-    fprintf(stderr, "failed to add temperature to JSON\n");
-    goto error;
-  }
-
-  if (cJSON_AddNumberToObject(root, "max_tokens", config->max_tokens) == NULL) {
-    fprintf(stderr, "filed to add max_tokens to JSON\n");
-    goto error;
-  }
-
-  json_string = cJSON_PrintUnformatted(root);
-  if (json_string == NULL) {
-    fprintf(stderr, "failed to printed JSON\n");
-    goto error;
-  }
-
-  cJSON_Delete(root);
-  return json_string;
-
-error:
-  if (root != NULL) {
-    cJSON_Delete(root);
-  }
-  return NULL;
-}
-
-static char *create_chat_request_json(const mistral_config_t *config,
-                                      const mistral_message_t *messages,
-                                      size_t message_count) {
-  cJSON *root = NULL;
-  cJSON *messages_array = NULL;
-  cJSON *message_obj = NULL;
-  char *json_string = NULL;
-  size_t i;
-
-  root = cJSON_CreateObject();
-  if (root == NULL) {
-    fprintf(stderr, "failed to create JSON object\n");
-    return NULL;
-  }
-
-  if (cJSON_AddStringToObject(root, "model", config->model) == NULL) {
-    fprintf(stderr, "failed to add model to JSON\n");
-    goto error;
-  }
-
-  messages_array = cJSON_CreateArray();
-  if (messages_array == NULL) {
-    fprintf(stderr, "failed to create messages array\n");
-    goto error;
-  }
-
-  for (i = 0; i < message_count; i++) {
-    message_obj = cJSON_CreateObject();
-    if (message_obj == NULL) {
-      fprintf(stderr, "failed to create message object\n");
-      goto error;
-    }
-
-    if (cJSON_AddStringToObject(message_obj, "role", messages[i].role) ==
-        NULL) {
-      cJSON_Delete(message_obj);
-      fprintf(stderr, "failed to add role to message\n");
-      goto error;
-    }
-
-    if (cJSON_AddStringToObject(message_obj, "content", messages[i].content) ==
-        NULL) {
-      cJSON_Delete(message_obj);
-      fprintf(stderr, "failed to add content to message\n");
-      goto error;
-    }
-
-    cJSON_AddItemToArray(messages_array, message_obj);
-  }
-
-  cJSON_AddItemToObject(root, "messages", messages_array);
-
-  if (cJSON_AddNumberToObject(root, "temperature", config->temperature) ==
-      NULL) {
-    fprintf(stderr, "failed to add temperature to JSON\n");
-    goto error;
-  }
-
-  if (cJSON_AddNumberToObject(root, "max_tokens", config->max_tokens) == NULL) {
-    fprintf(stderr, "failed to add max_tokens to JSON\n");
-    goto error;
-  }
-
-  json_string = cJSON_PrintUnformatted(root);
-  if (json_string == NULL) {
-    fprintf(stderr, "failed to print JSON\n");
-    goto error;
-  }
-
-  cJSON_Delete(root);
-  return json_string;
-
-error:
-  if (root != NULL) {
-    cJSON_Delete(root);
-  }
-  return NULL;
-}
-
-static int parse_response(const char *json_data, mistral_response_t *response) {
-  cJSON *root = NULL;
-  cJSON *choices = NULL;
-  cJSON *first_choice = NULL;
-  cJSON *message = NULL;
-  cJSON *content = NULL;
-  cJSON *usage = NULL;
-  cJSON *item = NULL;
-
-  memset(response, 0, sizeof(mistral_response_t));
-
-  root = cJSON_Parse(json_data);
-  if (root == NULL) {
-    response->error_message = strdup("failed to parse JSON response");
+int mistral_config_validate(const mistral_config_t *config) {
+  if (config == NULL) {
+    DEBUG_LOG("config is NULL");
     return -1;
   }
 
-  item = cJSON_GetObjectItemCaseSensitive(root, "error");
-  if (item != NULL) {
-    cJSON *error_message = cJSON_GetObjectItemCaseSensitive(item, "message");
-    if (error_message != NULL && cJSON_IsString(error_message)) {
-      response->error_message = strdup(error_message->valuestring);
-    } else {
-      response->error_message = strdup("unknown API error");
-    }
-    cJSON_Delete(root);
+  if (config->api_key == NULL || strlen(config->api_key) == 0) {
+    DEBUG_LOG("API key is empty");
     return -1;
   }
 
-  item = cJSON_GetObjectItemCaseSensitive(root, "id");
-  if (item != NULL && cJSON_IsString(item)) {
-    response->id = strdup(item->valuestring);
+  if (config->model == NULL || strlen(config->model) == 0) {
+    DEBUG_LOG("model is empty");
+    return -1;
   }
 
-  item = cJSON_GetObjectItemCaseSensitive(root, "model");
-  if (item != NULL && cJSON_IsString(item)) {
-    response->model = strdup(item->valuestring);
+  if (config->temperature < 0.0 || config->temperature > 2.0) {
+    DEBUG_LOG("temperature out of range: %.2f", config->temperature);
+    return -1;
   }
 
-  choices = cJSON_GetObjectItemCaseSensitive(root, "choices");
-  if (choices != NULL && cJSON_IsArray(choices) &&
-      cJSON_GetArraySize(choices) > 0) {
-    first_choice = cJSON_GetArrayItem(choices, 0);
-    if (first_choice != NULL) {
-      message = cJSON_GetObjectItemCaseSensitive(first_choice, "message");
-      if (message != NULL) {
-        content = cJSON_GetObjectItemCaseSensitive(message, "content");
-        if (content != NULL && cJSON_IsString(content)) {
-          response->content = strdup(content->valuestring);
-        }
-      }
-    }
+  if (config->max_tokens < 1 || config->max_tokens > 32000) {
+    DEBUG_LOG("max tokens out of range: %d", config->max_tokens);
+    return -1;
   }
 
-  usage = cJSON_GetObjectItemCaseSensitive(root, "usage");
-  if (usage != NULL) {
-    item = cJSON_GetObjectItemCaseSensitive(usage, "prompt_tokens");
-    if (item != NULL && cJSON_IsNumber(item)) {
-      response->prompt_tokens = item->valueint;
-    }
-
-    item = cJSON_GetObjectItemCaseSensitive(usage, "completion_tokens");
-    if (item != NULL && cJSON_IsNumber(item)) {
-      response->completion_tokens = item->valueint;
-    }
-
-    item = cJSON_GetObjectItemCaseSensitive(usage, "total_tokens");
-    if (item != NULL && cJSON_IsNumber(item)) {
-      response->total_tokens = item->valueint;
-    }
+  if (config->max_retries < 0 || config->max_retries > 10) {
+    DEBUG_LOG("max retries out of range: %d", config->max_retries);
+    return -1;
   }
 
-  cJSON_Delete(root);
-
-  if (response->content == NULL) {
-    response->error_message = strdup("no content in response");
+  if (config->timeout_sec < 1 || config->timeout_sec > 300) {
+    DEBUG_LOG("timeout out of range: %d", config->timeout_sec);
     return -1;
   }
 
   return 0;
 }
 
+void mistral_api_error_free(mistral_api_error_t *error) {
+  if (error != NULL) {
+    if (error->message != NULL) {
+      free(error->message);
+    }
+    if (error->type != NULL) {
+      free(error->type);
+    }
+    if (error->param != NULL) {
+      free(error->param);
+    }
+    if (error->code != NULL) {
+      free(error->code);
+    }
+    free(error);
+  }
+}
+
 int mistral_fim_completions(const mistral_config_t *config,
                             const mistral_fim_t *fim,
                             mistral_response_t *response) {
   char *request_json = NULL;
-  http_response_t http_resp = {0};
-  char auth_headers[512];
-  const char *headers[3];
   int ret = -1;
 
   if (config == NULL || config->api_key == NULL || fim == NULL ||
       fim->prompt == NULL || fim->suffix == NULL) {
     fprintf(stderr, "invalid arguments to mistral_fim_completions\n");
+    if (response != NULL) {
+      memset(response, 0, sizeof(mistral_response_t));
+      if (set_error_message(response, "Invalid parameters") != 0) {
+        return -1;
+      }
+      response->error_code = MISTRAL_ERR_INVALID_PARAM;
+    }
     return -1;
   }
 
   memset(response, 0, sizeof(mistral_response_t));
 
-  request_json = create_fim_request_json(config, fim);
-  if (request_json == NULL) {
-    response->error_message = strdup("failed to create request JSON");
+  if (validate_common_params(config, response) != 0) {
     return -1;
   }
 
-  snprintf(auth_headers, sizeof(auth_headers), "authorization: Bearer %s",
-           config->api_key);
-
-  headers[0] = "Content-Type: application/json";
-  headers[1] = auth_headers;
-  headers[2] = NULL;
-
-  if (http_post(MISTRAL_BASE_API "/fim/completions", headers, request_json,
-                &http_resp) != 0) {
-    response->error_message = strdup("HTTP request failed");
-    goto cleanup;
+  request_json = create_fim_request_json(config, fim);
+  if (request_json == NULL) {
+    if (set_error_message(response, "failed to create request JSON") != 0) {
+      return -1;
+    }
+    response->error_code = MISTRAL_ERR_MEM;
+    return -1;
   }
 
-  if (http_resp.http_code != 200) {
-    char error_msg[256];
-    snprintf(error_msg, sizeof(error_msg), "HTTP error: %ld %s",
-             http_resp.http_code, http_resp.data);
-    response->error_message = strdup(error_msg);
-    goto cleanup;
-  }
+  ret = execute_http_request_with_retry(config, MISTRAL_BASE_API "/fim/completions",
+                                   request_json, response);
 
-  if (parse_response(http_resp.data, response) != 0) {
-    goto cleanup;
-  }
-
-  ret = 0;
-
-  return ret;
-
-cleanup:
-  if (request_json != NULL) {
+if (request_json != NULL) {
     free(request_json);
   }
-  http_response_free(&http_resp);
 
   return ret;
 }
@@ -344,58 +202,66 @@ int mistral_chat_completions(const mistral_config_t *config,
                              size_t message_count,
                              mistral_response_t *response) {
   char *request_json = NULL;
-  http_response_t http_resp = {0};
-  char auth_header[512];
-  const char *headers[3];
   int ret = -1;
+  int debug_was_enabled = 0;
 
   if (config == NULL || config->api_key == NULL || messages == NULL ||
       message_count == 0 || response == NULL) {
     fprintf(stderr, "invalid arguments to mistral_chat_completions\n");
+    if (response != NULL) {
+      memset(response, 0, sizeof(mistral_response_t));
+      if (set_error_message(response, "Invalid parameters") != 0) {
+        return -1;
+      }
+      response->error_code = MISTRAL_ERR_INVALID_PARAM;
+    }
     return -1;
   }
 
   memset(response, 0, sizeof(mistral_response_t));
 
-  request_json = create_chat_request_json(config, messages, message_count);
-  if (request_json == NULL) {
-    response->error_message = strdup("failed to create request JSON");
+  if (validate_common_params(config, response) != 0) {
     return -1;
   }
 
-  snprintf(auth_header, sizeof(auth_header), "authorization: Bearer %s",
-           config->api_key);
-  headers[0] = "Content-Type: application/json";
-  headers[1] = auth_header;
-  headers[2] = NULL;
-
-  if (http_post(MISTRAL_BASE_API "/chat/completions", headers, request_json,
-                &http_resp) != 0) {
-    response->error_message = strdup("HTTP request failed");
-    goto cleanup;
+  if (config->debug_mode) {
+    mistral_set_debug(1);
+    debug_was_enabled = 1;
+#ifdef DEBUG
+    DEBUG_LOG("debug mode enabled via config");
+#endif
   }
 
-  if (http_resp.http_code != 200) {
-    char error_msg[256];
-    snprintf(error_msg, sizeof(error_msg), "HTTP error: %ld %s",
-             http_resp.http_code, http_resp.data);
-    response->error_message = strdup(error_msg);
-    goto cleanup;
+  DEBUG_LOG("starting chat completion request");
+  DEBUG_LOG("Model: %s, Temperature: %.2f, Max tokens: %d", config->model,
+            config->temperature, config->max_tokens);
+  DEBUG_LOG("Max retries: %d, Timeout: %d seconds", config->max_retries,
+            config->timeout_sec);
+
+  request_json = create_chat_request_json(config, messages, message_count);
+  if (request_json == NULL) {
+    if (set_error_message(response, "failed to create request JSON") != 0) {
+      return -1;
+    }
+    response->error_code = MISTRAL_ERR_MEM;
+    return -1;
   }
 
-  if (parse_response(http_resp.data, response) != 0) {
-    goto cleanup;
-  }
+  DEBUG_LOG("request JSON created (length: %zu)", strlen(request_json));
 
-  ret = 0;
+  ret = execute_http_request_with_retry(config, MISTRAL_BASE_API "/chat/completions",
+                                   request_json, response);
 
-  return ret;
-
-cleanup:
-  if (request_json != NULL) {
+if (request_json != NULL) {
     free(request_json);
   }
-  http_response_free(&http_resp);
+
+  if (debug_was_enabled) {
+    mistral_set_debug(0);
+#ifdef DEBUG
+    DEBUG_LOG("debug mode disabled");
+#endif
+  }
 
   return ret;
 }
@@ -418,9 +284,14 @@ void mistral_response_free(mistral_response_t *response) {
       free(response->error_message);
       response->error_message = NULL;
     }
-
+    if (response->api_error != NULL) {
+      mistral_api_error_free(response->api_error);
+      response->api_error = NULL;
+    }
     response->prompt_tokens = 0;
     response->completion_tokens = 0;
     response->total_tokens = 0;
+    response->error_code = MISTRAL_OK;
+    response->http_code = 0;
   }
 }

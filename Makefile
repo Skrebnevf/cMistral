@@ -2,12 +2,16 @@ CC = gcc
 CFLAGS = -Wall -Wextra -pedantic -std=c99 -O2 -Iinclude
 LDFLAGS = -lcurl -lcjson -lm
 
+# Debug build
+debug: CFLAGS += -DDEBUG -g -O0
+debug: clean all
+
 SRC_DIR = src
 INC_DIR = include
 EXAMPLE_DIR = examples
 TEST_DIR = tests
 
-LIB_SOURCES = $(SRC_DIR)/mistral.c $(SRC_DIR)/http_client.c
+LIB_SOURCES = $(SRC_DIR)/mistral.c $(SRC_DIR)/http_client.c $(SRC_DIR)/mistral_utils.c $(SRC_DIR)/mistral_helpers.c
 LIB_OBJECTS = $(LIB_SOURCES:.c=.o)
 LIB_NAME = libmistral.a
 
