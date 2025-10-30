@@ -18,4 +18,4 @@ int validate_common_params(const mistral_config_t *config,
 }
 #endif
 
-#endif /* MISTRAL_UTILS_H */
+#endif 

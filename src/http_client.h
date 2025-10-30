@@ -3,6 +3,10 @@
 
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
   char *data;
   size_t size;
@@ -28,5 +32,9 @@ int http_post(const char *url, const char **headers, const char *body, http_resp
 * libcurl free
 */
 void http_response_free(http_response_t *response);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

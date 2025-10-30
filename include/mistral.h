@@ -1,7 +1,11 @@
 #ifndef MISTRAL_H
 #define MISTRAL_H
 
-#include <stddef.h> 
+#include <stddef.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif 
 
 #define MISTRAL_VERSION 0.1.1
 
@@ -144,4 +148,9 @@ void mistral_set_debug(int enabled);
 * Struct cleanup
 */
 void mistral_api_error_free(mistral_api_error_t *error);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif

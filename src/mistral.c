@@ -158,6 +158,7 @@ int mistral_fim_completions(const mistral_config_t *config,
                             mistral_response_t *response) {
   char *request_json = NULL;
   int ret = -1;
+  int debug_was_enabled = 0;
 
   if (config == NULL || config->api_key == NULL || fim == NULL ||
       fim->prompt == NULL || fim->suffix == NULL) {
@@ -178,6 +179,20 @@ int mistral_fim_completions(const mistral_config_t *config,
     return -1;
   }
 
+  if (config->debug_mode) {
+    mistral_set_debug(1);
+    debug_was_enabled = 1;
+#ifdef DEBUG
+    DEBUG_LOG("debug mode enabled via config");
+#endif
+  }
+
+  DEBUG_LOG("starting FIM completion request");
+  DEBUG_LOG("Model: %s, Temperature: %.2f, Max tokens: %d", config->model,
+            config->temperature, config->max_tokens);
+  DEBUG_LOG("Max retries: %d, Timeout: %d seconds", config->max_retries,
+            config->timeout_sec);
+
   request_json = create_fim_request_json(config, fim);
   if (request_json == NULL) {
     if (set_error_message(response, "failed to create request JSON") != 0) {
@@ -187,11 +202,20 @@ int mistral_fim_completions(const mistral_config_t *config,
     return -1;
   }
 
+  DEBUG_LOG("request JSON created (length: %zu)", strlen(request_json));
+
   ret = execute_http_request_with_retry(config, MISTRAL_BASE_API "/fim/completions",
                                    request_json, response);
 
 if (request_json != NULL) {
     free(request_json);
+  }
+
+  if (debug_was_enabled) {
+    mistral_set_debug(0);
+#ifdef DEBUG
+    DEBUG_LOG("debug mode disabled");
+#endif
   }
 
   return ret;

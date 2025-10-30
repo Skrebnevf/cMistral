@@ -1,9 +1,8 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include "../include/mistral.h"
 #include "mistral_utils.h"
+#include "../include/mistral.h"
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -56,7 +55,7 @@ int set_error_message(mistral_response_t *response, const char *message) {
 }
 
 int validate_common_params(const mistral_config_t *config,
-                             mistral_response_t *response) {
+                           mistral_response_t *response) {
   if (config == NULL || config->api_key == NULL || response == NULL) {
     fprintf(stderr, "invalid arguments: config, api_key or response is NULL\n");
     if (response != NULL) {
