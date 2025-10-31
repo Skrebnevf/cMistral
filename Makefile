@@ -31,6 +31,7 @@ $(LIB_NAME): $(LIB_OBJECTS)
 example: $(LIB_NAME)
 	$(CC) $(CFLAGS) $(EXAMPLE_DIR)/chat_example.c -L. -lmistral $(LDFLAGS) -o chat_example
 	$(CC) $(CFLAGS) $(EXAMPLE_DIR)/fim_example.c -L. -lmistral $(LDFLAGS) -o fim_example
+	$(CC) $(CFLAGS) $(EXAMPLE_DIR)/embeddings_example.c -L. -lmistral $(LDFLAGS) -o embeddings_example
 
 
 tests: $(LIB_NAME)
@@ -48,6 +49,6 @@ test: tests
 	done
 
 clean:
-	rm -f $(LIB_OBJECTS) $(LIB_NAME) chat_example $(TEST_EXECUTABLES)
+	rm -f $(LIB_OBJECTS) $(LIB_NAME) chat_example fim_example embeddings_example $(TEST_EXECUTABLES)
 
 .PHONY: all clean example tests test

@@ -28,6 +28,18 @@ int execute_http_request_with_retry(const mistral_config_t *config,
                                     const char *request_json,
                                     mistral_response_t *response);
 
+int execute_embeddings_http_request_with_retry(const mistral_config_t *config,
+                                               const char *endpoint,
+                                               const char *request_json,
+                                               mistral_embeddings_response_t *response);
+
+char *create_embeddings_json(const mistral_config_t *config,
+                             const mistral_embeddings_t *embeddings,
+                             size_t input_count);
+
+int parse_embenddings(const char *json_data, long http_code,
+                      mistral_embeddings_response_t *response);
+
 #ifdef __cplusplus
 }
 #endif

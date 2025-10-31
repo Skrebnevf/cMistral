@@ -17,9 +17,13 @@
 #define DEFAULT_RETRY_DELAY_MS 1000
 #define DEFAULT_TIMEOUT_SEC 60
 
-static int g_debug_enabled = 0;
+int execute_embeddings_http_request_with_retry(const mistral_config_t *config,
+                                               const char *endpoint,
+                                               const char *request_json,
+                                               mistral_embeddings_response_t *response);
 
 #ifdef DEBUG
+static int g_debug_enabled = 0;
 #define DEBUG_LOG(...)                                                         \
   do {                                                                         \
     fprintf(stderr, "[---DEBUG---] ");                                         \
@@ -28,6 +32,7 @@ static int g_debug_enabled = 0;
   } while (0)
 #else
 #define DEBUG_LOG(...) ((void)0)
+#define g_debug_enabled 0;
 #endif
 
 /*Init the Mistral lib include HTTP client*/
@@ -37,9 +42,11 @@ int mistral_init(void) { return http_client_init(); }
 void mistral_cleanup(void) { http_client_cleanup(); }
 
 void mistral_set_debug(int enabled) {
-  g_debug_enabled = enabled;
 #ifdef DEBUG
+  g_debug_enabled = enabled;
   DEBUG_LOG("debug mode %s", enabled ? "enabled" : "disabled");
+#else
+  (void)enabled;
 #endif
 }
 
@@ -153,6 +160,77 @@ void mistral_api_error_free(mistral_api_error_t *error) {
   }
 }
 
+int mistral_embeddings(const mistral_config_t *config,
+                        const mistral_embeddings_t *embeddings,
+                        size_t input_count,
+                        mistral_embeddings_response_t *response) {
+  char *request_json = NULL;
+  int ret = -1;
+  int debug_was_enabled = 0;
+
+  if (config == NULL || config->api_key == NULL || embeddings == NULL ||
+      input_count == 0 || response == NULL) {
+    fprintf(stderr, "invalid arguments to mistral_embeddings\n");
+    if (response != NULL) {
+      memset(response, 0, sizeof(mistral_embeddings_response_t));
+      response->error_message = strdup("Invalid parameters");
+      if (response->error_message == NULL) {
+        return -1;
+      }
+      response->error_code = MISTRAL_ERR_INVALID_PARAM;
+    }
+    return -1;
+  }
+
+  memset(response, 0, sizeof(mistral_embeddings_response_t));
+
+  if (validate_common_params(config, (mistral_response_t *)response) != 0) {
+    return -1;
+  }
+
+  if (config->debug_mode) {
+    mistral_set_debug(1);
+    debug_was_enabled = 1;
+#ifdef DEBUG
+    DEBUG_LOG("debug mode enabled via config");
+#endif
+  }
+
+  DEBUG_LOG("starting embeddings request");
+  DEBUG_LOG("Model: %s", config->model);
+  DEBUG_LOG("Input count: %zu", input_count);
+  DEBUG_LOG("Max retries: %d, Timeout: %d seconds", config->max_retries,
+            config->timeout_sec);
+
+  request_json = create_embeddings_json(config, embeddings, input_count);
+  if (request_json == NULL) {
+    response->error_message = strdup("failed to create request JSON");
+    if (response->error_message == NULL) {
+      return -1;
+    }
+    response->error_code = MISTRAL_ERR_MEM;
+    return -1;
+  }
+
+  DEBUG_LOG("request JSON created (length: %zu)", strlen(request_json));
+
+  ret = execute_embeddings_http_request_with_retry(
+      config, MISTRAL_BASE_API "/embeddings", request_json, response);
+
+  if (request_json != NULL) {
+    free(request_json);
+  }
+
+  if (debug_was_enabled) {
+    mistral_set_debug(0);
+#ifdef DEBUG
+    DEBUG_LOG("debug mode disabled");
+#endif
+  }
+
+  return ret;
+}
+
 int mistral_fim_completions(const mistral_config_t *config,
                             const mistral_fim_t *fim,
                             mistral_response_t *response) {
@@ -204,10 +282,10 @@ int mistral_fim_completions(const mistral_config_t *config,
 
   DEBUG_LOG("request JSON created (length: %zu)", strlen(request_json));
 
-  ret = execute_http_request_with_retry(config, MISTRAL_BASE_API "/fim/completions",
-                                   request_json, response);
+  ret = execute_http_request_with_retry(
+      config, MISTRAL_BASE_API "/fim/completions", request_json, response);
 
-if (request_json != NULL) {
+  if (request_json != NULL) {
     free(request_json);
   }
 
@@ -273,10 +351,10 @@ int mistral_chat_completions(const mistral_config_t *config,
 
   DEBUG_LOG("request JSON created (length: %zu)", strlen(request_json));
 
-  ret = execute_http_request_with_retry(config, MISTRAL_BASE_API "/chat/completions",
-                                   request_json, response);
+  ret = execute_http_request_with_retry(
+      config, MISTRAL_BASE_API "/chat/completions", request_json, response);
 
-if (request_json != NULL) {
+  if (request_json != NULL) {
     free(request_json);
   }
 
@@ -315,6 +393,51 @@ void mistral_response_free(mistral_response_t *response) {
     response->prompt_tokens = 0;
     response->completion_tokens = 0;
     response->total_tokens = 0;
+    response->error_code = MISTRAL_OK;
+    response->http_code = 0;
+  }
+}
+
+void mistral_embeddings_response_free(mistral_embeddings_response_t *response) {
+  if (response != NULL) {
+    if (response->id != NULL) {
+      free(response->id);
+      response->id = NULL;
+    }
+    if (response->model != NULL) {
+      free(response->model);
+      response->model = NULL;
+    }
+    if (response->object != NULL) {
+      free(response->object);
+      response->object = NULL;
+    }
+    if (response->error_message != NULL) {
+      free(response->error_message);
+      response->error_message = NULL;
+    }
+    if (response->api_error != NULL) {
+      mistral_api_error_free(response->api_error);
+      response->api_error = NULL;
+    }
+    if (response->data != NULL) {
+      size_t i = 0;
+      while (i < 1000 && (response->data[i].embending != NULL || i == 0)) {
+        if (response->data[i].embending != NULL) {
+          free(response->data[i].embending);
+        }
+        if (response->data[i].object != NULL) {
+          free(response->data[i].object);
+        }
+        i++;
+      }
+      free(response->data);
+      response->data = NULL;
+    }
+    if (response->usage != NULL) {
+      free(response->usage);
+      response->usage = NULL;
+    }
     response->error_code = MISTRAL_OK;
     response->http_code = 0;
   }

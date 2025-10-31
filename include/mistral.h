@@ -2,6 +2,7 @@
 #define MISTRAL_H
 
 #include <stddef.h>
+#include <stdio.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -47,6 +48,10 @@ typedef struct {
   char *suffix;
 } mistral_fim_t;
 
+typedef struct{
+  char *input;
+} mistral_embeddings_t;
+
 /*Errors code*/
 typedef enum {
   MISTRAL_OK = 0,
@@ -61,7 +66,7 @@ typedef enum {
 } mistral_error_code_t;
 
 /*
-* Response from chat/completions
+* Response from fim or chat/completions
 */
 typedef struct {
   char *id;
@@ -74,7 +79,35 @@ typedef struct {
   mistral_error_code_t error_code;
   long http_code;
   mistral_api_error_t *api_error;
-} mistral_response_t ;
+} mistral_response_t;
+
+typedef struct {
+  float *embending;
+  int index;
+  char *object; 
+} embedding_response_data;
+
+typedef struct {
+  int completion_tokens;
+  int prompt_audio_seconds;
+  int prompt_tokens;
+  int total_tokens;
+} usage_info_t;
+
+/*
+* Response from embeddings 
+*/
+typedef struct {
+  long http_code;
+  mistral_error_code_t error_code;
+  mistral_api_error_t *api_error;
+  char *error_message;
+  embedding_response_data *data;
+  char *id;
+  char *model;
+  char *object;
+  usage_info_t *usage;
+} mistral_embeddings_response_t;
 
 /*
 * Call first
@@ -130,6 +163,14 @@ int mistral_fim_completions(
 );
 
 /*
+* Send request to /embeddings
+*/
+int mistral_embeddings(const mistral_config_t *config,
+                       const mistral_embeddings_t *embenddings,
+                       size_t message_count,
+                       mistral_embeddings_response_t *response);
+
+/*
 * Clear request
 */
 void mistral_response_free(mistral_response_t *response);
@@ -148,6 +189,11 @@ void mistral_set_debug(int enabled);
 * Struct cleanup
 */
 void mistral_api_error_free(mistral_api_error_t *error);
+
+/*
+* Clear embeddings response
+*/
+void mistral_embeddings_response_free(mistral_embeddings_response_t *response);
 
 #ifdef __cplusplus
 }
