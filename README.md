@@ -1,5 +1,8 @@
 # cMistral
 
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![C99](https://img.shields.io/badge/C-C99-blue.svg)
+
 C library for working with Mistral AI API - a simple wrapper for integrating language models into C applications.
 
 ## Features
