@@ -1,6 +1,6 @@
 # cMistral
 
-C library for working with Mistral AI API - a simple and efficient wrapper for integrating language models into your C applications.
+C library for working with Mistral AI API - a simple wrapper for integrating language models into C applications.
 
 ## Features
 
@@ -21,7 +21,7 @@ C library for working with Mistral AI API - a simple and efficient wrapper for i
 
 ```bash
 # Clone repository
-git clone https://github.com/your-username/cMistral.git
+git clone https://github.com/Skrebnevf/cMistral.git
 cd cMistral
 
 # Build library
